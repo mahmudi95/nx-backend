@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes.communes import router as communes_router
+from routes.agencies import router as agencies_router
 
 app = FastAPI(
     title="Neuraplex API",
@@ -20,6 +21,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(communes_router)
+app.include_router(agencies_router)
 
 
 @app.get("/")
