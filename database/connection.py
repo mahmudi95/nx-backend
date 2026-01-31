@@ -4,10 +4,8 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy import text
 
 # Database URL from environment
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@db:5432/neuraplex"
-)
+DATABASE_URL = os.getenv("DATABASE_URL") or \
+    f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'neuraplex')}:{os.getenv('POSTGRES_PASSWORD', 'neuraplex')}@db:5432/{os.getenv('POSTGRES_DB', 'neuraplex')}"
 
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=True)
