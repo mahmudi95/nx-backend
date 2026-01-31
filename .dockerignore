@@ -1,0 +1,11 @@
+dumps/
+*.sql
+*.gz
+.env*
+.git
+.gitignore
+__pycache__
+*.pyc
+deploy.sh
+docker-compose*.yml
+README.md

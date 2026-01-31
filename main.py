@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+import os
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from routes.communes import router as communes_router
 from routes.agencies import router as agencies_router
@@ -10,10 +12,21 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS Middleware
+# API Key protection
+API_KEY = os.getenv("API_KEY")
+UNPROTECTED_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
+
+@app.middleware("http")
+async def verify_api_key(request: Request, call_next):
+    if API_KEY and request.url.path not in UNPROTECTED_PATHS:
+        if request.headers.get("X-API-Key") != API_KEY:
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    return await call_next(request)
+
+# CORS Middleware (restrict later when you have domain)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # TODO: restrict to your frontend domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
