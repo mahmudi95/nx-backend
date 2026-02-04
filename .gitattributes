@@ -1,0 +1,4 @@
+# Never diff/merge these files (extra protection)
+.env.prod filter=secret
+.env filter=secret
+*.pem filter=secret
