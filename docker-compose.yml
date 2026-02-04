@@ -19,12 +19,34 @@ services:
       timeout: 5s
       retries: 5
 
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - backend_net
+    command: mongod --bind_ip_all --auth
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand(\"ping\").ok' -u ${MONGODB_USERNAME} -p ${MONGODB_PASSWORD} --authenticationDatabase admin localhost:27017/test || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build: .
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       API_KEY: ${API_KEY}
+    volumes:
+      - ./scripts:/app/scripts
     ports:
       - "8000:8000"
     depends_on:
@@ -38,3 +60,4 @@ networks:
 
 volumes:
   postgres_data:
+  mongodb_data:

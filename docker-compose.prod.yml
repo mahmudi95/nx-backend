@@ -25,12 +25,32 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./dumps:/dumps
     ports:
-      - "5432:5432"
+      - "10.0.0.1:5432:5432"  # Only accessible via WireGuard
     networks:
       - backend_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:7.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "10.0.0.1:27017:27017"  # Only accessible via WireGuard
+    networks:
+      - backend_net
+    command: mongod --bind_ip_all --auth
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand(\"ping\").ok' -u ${MONGODB_USERNAME} -p ${MONGODB_PASSWORD} --authenticationDatabase admin localhost:27017/test || exit 1"]
+      interval: 10s
       timeout: 5s
       retries: 5
 
@@ -40,6 +60,12 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       API_KEY: ${API_KEY}
+    volumes:
+      - ./scripts:/app/scripts
+      - ./.env.prod:/app/.env.prod:ro
+      # SSH keys for WireGuard provisioning (using Ed25519 key)
+      - ${HOME}/.ssh/id_ed25519:/root/.ssh/id_ed25519
+      - ${HOME}/.ssh/id_ed25519.pub:/root/.ssh/id_ed25519.pub:ro
     expose:
       - "8000"
     depends_on:
@@ -53,5 +79,6 @@ networks:
 
 volumes:
   postgres_data:
+  mongodb_data:
   caddy_data:
   caddy_config:

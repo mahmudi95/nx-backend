@@ -2,9 +2,11 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+import uvicorn
 
 from routes.communes import router as communes_router
 from routes.agencies import router as agencies_router
+from routes.provisioning import router as provisioning_router
 
 app = FastAPI(
     title="Neuraplex API",
@@ -35,6 +37,7 @@ app.add_middleware(
 # Include routers
 app.include_router(communes_router)
 app.include_router(agencies_router)
+app.include_router(provisioning_router)
 
 
 @app.get("/")
@@ -48,5 +51,4 @@ async def health():
 
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
