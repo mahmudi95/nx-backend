@@ -71,9 +71,19 @@ def get_next_available_ip(clients_file: Path) -> int:
                 if line.startswith('#') or not line:
                     continue
                 
-                # Parse format: NAME|PUBKEY|IP_SUFFIX
+                # Parse format: MACHINE_ID|CLIENT_NAME|PUBLIC_KEY|IP_SUFFIX (new)
+                # or: NAME|PUBLIC_KEY|IP_SUFFIX (old format, backward compat)
                 parts = line.split('|')
-                if len(parts) >= 3:
+                if len(parts) >= 4:
+                    # New format: MACHINE_ID|CLIENT_NAME|PUBLIC_KEY|IP_SUFFIX
+                    try:
+                        ip_suffix = int(parts[3])
+                        if ip_suffix > max_ip:
+                            max_ip = ip_suffix
+                    except ValueError:
+                        continue
+                elif len(parts) >= 3:
+                    # Old format: NAME|PUBLIC_KEY|IP_SUFFIX (backward compat)
                     try:
                         ip_suffix = int(parts[2])
                         if ip_suffix > max_ip:
