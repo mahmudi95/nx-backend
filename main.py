@@ -7,6 +7,7 @@ import uvicorn
 from routes.communes import router as communes_router
 from routes.agencies import router as agencies_router
 from routes.provisioning import router as provisioning_router
+from routes.monitoring import router as monitoring_router
 
 app = FastAPI(
     title="Neuraplex API",
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(communes_router)
 app.include_router(agencies_router)
 app.include_router(provisioning_router)
+app.include_router(monitoring_router)
 
 
 @app.get("/")
