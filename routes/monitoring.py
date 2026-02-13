@@ -23,8 +23,8 @@ async def get_runs(hours: float = 24, limit: int = 100, db = Depends(get_mongo_d
         cursor = db["runs"].find(
             {"run_started_at": {"$gte": cutoff}}
         ).sort("run_started_at", -1).limit(limit)
-        
-        runs = await cursor.to_list(length=limit)
+
+    runs = await cursor.to_list(length=limit)
         
         # Convert non-serializable types
         for run in runs:

@@ -1,0 +1,14 @@
+FROM postgis/postgis:16-3.4
+
+# Install pg_cron extension
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-16-cron && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create init script to enable pg_cron
+RUN mkdir -p /docker-entrypoint-initdb.d
+RUN echo "CREATE EXTENSION IF NOT EXISTS pg_cron;" > /docker-entrypoint-initdb.d/01-enable-pg-cron.sql
+
+# Configure PostgreSQL to load pg_cron
+RUN echo "shared_preload_libraries = 'pg_cron'" >> /usr/share/postgresql/postgresql.conf.sample

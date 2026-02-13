@@ -70,3 +70,7 @@ logs/
 tmp/
 temp/
 *.tmp
+
+# Alembic
+__pycache__/
+*.pyc

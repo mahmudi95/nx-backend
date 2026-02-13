@@ -15,7 +15,9 @@ services:
       - backend
 
   db:
-    image: postgis/postgis:16-3.4
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}

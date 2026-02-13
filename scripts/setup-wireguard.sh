@@ -59,9 +59,9 @@ list_clients() {
         else
             # Old format: NAME|PUBKEY|IP
             machine_id="unknown"
-            name=$(echo "$line" | cut -d'|' -f1)
-            pubkey=$(echo "$line" | cut -d'|' -f2)
-            ip=$(echo "$line" | cut -d'|' -f3)
+        name=$(echo "$line" | cut -d'|' -f1)
+        pubkey=$(echo "$line" | cut -d'|' -f2)
+        ip=$(echo "$line" | cut -d'|' -f3)
         fi
         printf "%-20s %-20s %-40s 10.0.0.%s\n" "$machine_id" "$name" "${pubkey:0:35}..." "$ip"
     done < "$CLIENTS_FILE"
@@ -81,9 +81,9 @@ generate_peers() {
             ip=$(echo "$line" | cut -d'|' -f4)
         else
             # Old format: NAME|PUBKEY|IP
-            name=$(echo "$line" | cut -d'|' -f1)
-            pubkey=$(echo "$line" | cut -d'|' -f2)
-            ip=$(echo "$line" | cut -d'|' -f3)
+        name=$(echo "$line" | cut -d'|' -f1)
+        pubkey=$(echo "$line" | cut -d'|' -f2)
+        ip=$(echo "$line" | cut -d'|' -f3)
         fi
         peers+="
 # $name

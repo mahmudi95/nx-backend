@@ -7,6 +7,8 @@ set -euo pipefail
 # Usage:
 #   ./deploy.sh                       # Deploy backend (quick)
 #   ./deploy.sh --full                # Restart all services
+#   ./deploy.sh --migrate             # Run migrations only
+#   ./deploy.sh --full --migrate      # Restart all + run migrations
 #   ./deploy.sh --restore /path       # Deploy with DB restore
 #   ./deploy.sh --rollback            # Rollback to previous version
 #   ./deploy.sh --setup-wireguard     # Force WireGuard setup/reconfigure
@@ -47,11 +49,14 @@ EOF
 fi
 
 # Required vars
-: "${REMOTE_USER:?REMOTE_USER not set}"
-: "${REMOTE_HOST:?REMOTE_HOST not set}"
 : "${GITHUB_USER:?GITHUB_USER not set}"
 : "${GITHUB_TOKEN:?GITHUB_TOKEN not set}"
 : "${IMAGE_NAME:?IMAGE_NAME not set}"
+
+# Allow DEPLOY_HOST to override REMOTE_HOST from env
+REMOTE_HOST="${DEPLOY_HOST:-${REMOTE_HOST}}"
+: "${REMOTE_USER:?REMOTE_USER not set}"
+: "${REMOTE_HOST:?REMOTE_HOST not set}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/nx-backend}"
 
 # Parse args
@@ -59,12 +64,14 @@ RESTORE_PATH=""
 ROLLBACK=""
 FULL=""
 SETUP_WIREGUARD=""
+RUN_MIGRATIONS=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --restore|-r) RESTORE_PATH="$2"; shift 2 ;;
         --rollback) ROLLBACK="true"; shift ;;
         --full|-f) FULL="true"; shift ;;
         --setup-wireguard) SETUP_WIREGUARD="true"; shift ;;
+        --migrate|-m) RUN_MIGRATIONS="true"; shift ;;
         *) echo "Unknown: $1"; exit 1 ;;
     esac
 done
@@ -76,18 +83,24 @@ error() { echo -e "\033[0;31m[✗]\033[0m $1"; exit 1; }
 
 REMOTE="$REMOTE_USER@$REMOTE_HOST"
 
-# SSH helper
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 run_ssh() { ssh -o StrictHostKeyChecking=accept-new "$REMOTE" "$@"; }
 run_rsync() { rsync "$@"; }
 remote_docker() { run_ssh "docker $*"; }
 remote_compose() { run_ssh "cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml --env-file .env.prod $*"; }
 
+# =============================================================================
+# DEPLOYMENT START
+# =============================================================================
 echo "================================================"
 echo "   NX-Backend Deploy -> $REMOTE_HOST"
 [ -n "$RESTORE_PATH" ] && echo "   Mode: RESTORE"
 [ -n "$ROLLBACK" ] && echo "   Mode: ROLLBACK"
 [ -n "$FULL" ] && echo "   Mode: FULL"
 [ -n "$SETUP_WIREGUARD" ] && echo "   Mode: SETUP-WIREGUARD"
+[ -n "$RUN_MIGRATIONS" ] && echo "   + Running migrations"
 [ -z "$RESTORE_PATH" ] && [ -z "$ROLLBACK" ] && [ -z "$FULL" ] && [ -z "$SETUP_WIREGUARD" ] && echo "   Mode: QUICK"
 echo "================================================"
 
@@ -105,33 +118,31 @@ if [ -n "$ROLLBACK" ]; then
 fi
 
 # =============================================================================
-# BUILD & PUSH
-# =============================================================================
-cd "$SCRIPT_DIR"
-log "Building image..."
-docker build -t "$IMAGE_NAME:latest" .
-
-log "Logging into GHCR..."
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
-
-log "Pushing to GHCR..."
-docker push "$IMAGE_NAME:latest"
-
-# =============================================================================
 # SYNC FILES
 # =============================================================================
 log "Creating remote directory..."
 run_ssh "mkdir -p $REMOTE_DIR/dumps $REMOTE_DIR/scripts"
 
-log "Syncing files..."
-run_rsync -avz docker-compose.prod.yml .env.prod Caddyfile "$REMOTE:$REMOTE_DIR/"
+log "Syncing configuration files..."
+run_rsync -avz docker-compose.prod.yml .env.prod Caddyfile Dockerfile.postgres "$REMOTE:$REMOTE_DIR/"
 
-# Sync scripts directory (including wireguard-clients.conf and backup script)
+# =============================================================================
+# SYNC ALEMBIC MIGRATIONS
+# =============================================================================
+log "Syncing Alembic migrations..."
+run_rsync -avz alembic~/ "$REMOTE:$REMOTE_DIR/alembic~/"
+run_rsync -avz alembic.ini migrate.py "$REMOTE:$REMOTE_DIR/"
+
+# =============================================================================
+# SYNC SCRIPTS & UTILITIES
+# =============================================================================
 log "Syncing scripts..."
 run_rsync -avz scripts/ "$REMOTE:$REMOTE_DIR/scripts/"
 run_ssh "chmod +x $REMOTE_DIR/scripts/*.sh"
 
-# Sync SSH keys to remote server for WireGuard provisioning
+# =============================================================================
+# SYNC SSH KEYS (for WireGuard provisioning)
+# =============================================================================
 log "Syncing SSH keys for WireGuard provisioning..."
 run_ssh "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
 if [ -f "$HOME/.ssh/id_ed25519" ]; then
@@ -147,7 +158,7 @@ else
 fi
 
 # =============================================================================
-# WIREGUARD SETUP (if needed)
+# WIREGUARD SETUP (first-time or forced reconfiguration)
 # =============================================================================
 # Check if WireGuard is already configured
 WIREGUARD_CONFIGURED=false
@@ -176,7 +187,9 @@ else
     log "WireGuard already configured. Skipping setup. (Use --setup-wireguard to reconfigure)"
 fi
 
-# Ensure WireGuard is running (critical for Docker to bind to 10.0.0.1)
+# =============================================================================
+# VERIFY WIREGUARD IS RUNNING
+# =============================================================================
 log "Checking if WireGuard is running..."
 if run_ssh "systemctl is-active --quiet wg-quick@wg0"; then
     log "WireGuard is running ✓"
@@ -191,7 +204,7 @@ else
 fi
 
 # =============================================================================
-# SETUP DATABASE BACKUPS
+# SETUP AUTOMATED DATABASE BACKUPS (cronjob)
 # =============================================================================
 log "Setting up database backup cronjob..."
 run_ssh "mkdir -p /opt/nx-backups"
@@ -203,6 +216,21 @@ else
     log "Adding backup cronjob (daily at 4 AM)..."
     run_ssh "(crontab -l 2>/dev/null || true; echo '0 4 * * * /opt/nx-backend/scripts/backup_databases.sh >> /var/log/nx-backup.log 2>&1') | crontab -"
     log "Backup cronjob added ✓"
+fi
+
+# =============================================================================
+# PRE-DEPLOYMENT BACKUP (safety snapshot before changes)
+# =============================================================================
+log "Creating pre-deployment backup..."
+if run_ssh "$REMOTE_DIR/scripts/backup_databases.sh" 2>&1 | tee /tmp/backup.log | tail -10; then
+    log "Backup completed successfully ✓"
+else
+    warn "Backup failed or incomplete. Check logs at /var/log/nx-backup.log on server"
+    read -p "Continue with deployment anyway? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        error "Deployment cancelled by user"
+    fi
 fi
 
 # =============================================================================
@@ -242,7 +270,7 @@ if [ -n "$RESTORE_PATH" ]; then
     echo ""
 else
     # =============================================================================
-    # NORMAL DEPLOY
+    # NORMAL DEPLOY (pull image, run migrations, restart services)
     # =============================================================================
     log "Logging into GHCR on remote..."
     remote_docker "login ghcr.io -u '$GITHUB_USER' -p '$GITHUB_TOKEN'"
@@ -253,6 +281,21 @@ else
     log "Pulling latest..."
     remote_docker "pull $IMAGE_NAME:latest"
     
+    # =============================================================================
+    # RUN DATABASE MIGRATIONS (if --migrate flag set)
+    # =============================================================================
+    if [ -n "$RUN_MIGRATIONS" ]; then
+        log "Running database migrations..."
+        if remote_compose "run --rm backend python migrate.py up"; then
+            log "Migrations completed successfully ✓"
+        else
+            error "Migration failed! Aborting deployment."
+        fi
+    fi
+    
+    # =============================================================================
+    # RESTART SERVICES (full or quick mode)
+    # =============================================================================
     if [ -n "$FULL" ]; then
         log "Full restart..."
         remote_compose "down" 2>/dev/null || true
@@ -264,7 +307,7 @@ else
 fi
 
 # =============================================================================
-# VERIFY
+# VERIFY DEPLOYMENT & SHOW STATUS
 # =============================================================================
 log "Waiting for services..."
 sleep 10
